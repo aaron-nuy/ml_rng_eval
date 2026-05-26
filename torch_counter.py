@@ -3,13 +3,6 @@ import os
 import sys
 import torch
 
-def count_rand_calls_enabled() -> bool:
-    return os.environ.get("PYTORCH_COUNT_RAND_CALLS") not in (None, "0", "false", "False", "", "no", "NO", "off", "OFF")
-
-if not count_rand_calls_enabled():
-    sys.exit("Using torch_counter requires having PYTORCH_COUNT_RAND_CALLS env var to be enabled."
-             " Counters will remain at 0 unless enabled.")
-
 _lib = None
 
 def _init_lib():
