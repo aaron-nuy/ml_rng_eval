@@ -1,3 +1,4 @@
 torch @ git+https://github.com/aaron-nuy/pytorch.git@main
+torchvision @ git+https://github.com/aaron-nuy/vision.git@main
 numpy
 matplotlib
