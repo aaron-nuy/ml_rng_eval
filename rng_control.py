@@ -1,24 +1,17 @@
 import patch_random
 import random
 import torch_extra_utils
+import torch
 
 __lcg__ = patch_random.LCG()
 __pcg__ = patch_random.PCG()
 __philox__ = patch_random.Philox()
-__mt19937__ = random.Random()
 
-def init_rng(seed: int = 42):
-    global __lcg__, __pcg__, __philox__
-    __lcg__.seed(seed)
-    __pcg__.seed(seed)
-    __philox__.seed(seed)
-    __mt19937__.seed(seed)
-
-def set_rng(type: str):
+def change_rng_type(type: str, seed: int):
     if type.lower() == "lcg":
         patch_random.patch(__lcg__)
         torch_extra_utils.change_rng("LCG")
-    elif type.lower() == "png":
+    elif type.lower() == "pcg":
         patch_random.patch(__pcg__)
         torch_extra_utils.change_rng("PCG")
     elif type.lower() == "philox":
@@ -27,3 +20,15 @@ def set_rng(type: str):
     else:
         patch_random.unpatch()
         torch_extra_utils.change_rng("MT19937")
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+
+def change_rng_type_without_resetting_seed(type: str):
+    r"""
+        This is used to change the prng engine mid training process.
+        It ensures that the starting state after the change is different
+        from the initial state.
+    """
+    next_seed = int(torch.randint(0, 2**31, (1,)).item())
+    change_rng_type(type, next_seed)

@@ -1,5 +1,3 @@
-import random
-import argparse
 import torch
 torch._dynamo.config.use_numpy_random_stream = False
 import torch.nn as nn
@@ -36,45 +34,14 @@ class MNISTNet(nn.Module):
 
 
 class BaseMNISTTrainer:
-    def __init__(self, args=None):
-        if args is None:
-            parser = self.build_parser()
-            self.args = parser.parse_args()
-        else:
-            self.args = args
-
-        torch.manual_seed(self.args.seed)
+    def __init__(self, args):
+        self.args = args
 
         self.device = self.setup_device()
         self.model = self.build_model().to(self.device)
         self.train_loader, self.test_loader = self.build_dataloaders()
         self.optimizer = self.build_optimizer()
         self.scheduler = self.build_scheduler()
-
-    @classmethod
-    def build_parser(cls):
-        parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-        parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                            help='input batch size for training (default: 64)')
-        parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                            help='input batch size for testing (default: 1000)')
-        parser.add_argument('--epochs', type=int, default=4, metavar='N',
-                            help='number of epochs to train (default: 4)')
-        parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
-                            help='learning rate (default: 1.0)')
-        parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
-                            help='Learning rate step gamma (default: 0.7)')
-        parser.add_argument('--no-accel', action='store_true',
-                            help='disables accelerator')
-        parser.add_argument('--dry-run', action='store_true',
-                            help='quickly check a single pass')
-        parser.add_argument('--seed', type=int, default=1, metavar='S',
-                            help='random seed (default: 1)')
-        parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                            help='how many batches to wait before logging training status')
-        parser.add_argument('--save-model', action='store_true',
-                            help='For Saving the current Model')
-        return parser
 
     def setup_device(self):
         use_accel = not self.args.no_accel and torch.accelerator.is_available()
@@ -140,11 +107,13 @@ class BaseMNISTTrainer:
 
     def train_epoch(self, epoch):
         self.model.train()
+        losses = []
         for batch_idx, (data, target) in enumerate(self.train_loader):
             data, target = data.to(self.device), target.to(self.device)
             self.optimizer.zero_grad()
             output = self.model(data)
             loss = F.nll_loss(output, target)
+            losses.append(loss.item())
             loss.backward()
             self.optimizer.step()
 
@@ -152,10 +121,10 @@ class BaseMNISTTrainer:
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch, batch_idx * len(data), len(self.train_loader.dataset),
                            100. * batch_idx / len(self.train_loader), loss.item()))
-                if self.args.dry_run:
-                    break
 
-    def test_epoch(self):
+        return losses
+
+    def test_epoch(self) -> tuple[int, float]:
         self.model.eval()
         test_loss = 0
         correct = 0
@@ -168,27 +137,22 @@ class BaseMNISTTrainer:
                 correct += pred.eq(target.view_as(pred)).sum().item()
 
         test_loss /= len(self.test_loader.dataset)
-
+        accuracy = float(correct) / len(self.test_loader.dataset)
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             test_loss, correct, len(self.test_loader.dataset),
-            100. * correct / len(self.test_loader.dataset)))
+            100. * accuracy))
 
-    def save_checkpoint(self):
-        if self.args.save_model:
-            torch.save(self.model.state_dict(), "mnist_cnn.pt")
+        return test_loss, accuracy
 
     def run(self):
+        losses = []
+        test_losses = []
+        accuracies = []
         for epoch in range(1, self.args.epochs + 1):
-            self.train_epoch(epoch)
-            self.test_epoch()
+            losses += self.train_epoch(epoch)
+            test_loss, accuracy = self.test_epoch()
+            test_losses.append(test_loss)
+            accuracies.append(accuracy)
             self.scheduler.step()
 
-
-def main():
-    random.randint(0, 10000)
-    trainer = BaseMNISTTrainer()
-    trainer.run()
-
-
-if __name__ == '__main__':
-    main()
+        return losses, test_losses, accuracies
