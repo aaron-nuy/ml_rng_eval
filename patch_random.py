@@ -1,7 +1,9 @@
 import random as _random_module
+import numpy as np
 import time
 
 __counter_to_rand__ = 0
+__counter_to_rand_np__ = 0
 
 class LCG(_random_module.Random):
     _M = 1 << 31
@@ -149,8 +151,28 @@ __functions_to_patch__ = [
 
 __original_functions__: dict = {}
 
+__numpy_orig_default_rng__ = np.random.default_rng
+
+class NumPyRandCountingGenerator:
+    def __init__(self, gen):
+        self._gen = gen
+
+    def __getattr__(self, name):
+        attr = getattr(self._gen, name)
+        if callable(attr):
+            def wrapped(*args, **kwargs):
+                global __counter_to_rand_np__
+                __counter_to_rand_np__ += 1
+                return attr(*args, **kwargs)
+            return wrapped
+        return attr
+
+def fake_default_rng(*args, **kwargs):
+    return NumPyRandCountingGenerator(__numpy_orig_default_rng__(*args, **kwargs))
 
 def patch(gen: _random_module.Random) -> None:
+    np.random.default_rng = fake_default_rng
+
     if gen is None or not isinstance(gen, _random_module.Random):
         return None
 
@@ -170,6 +192,8 @@ def patch(gen: _random_module.Random) -> None:
 
 
 def unpatch() -> None:
+    np.random.default_rng = __numpy_orig_default_rng__
+
     if not __original_functions__:
         return
 
