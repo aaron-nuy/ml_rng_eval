@@ -24,6 +24,9 @@ def _init_lib():
     _lib.reset_pytorch_rng_call_count.argtypes = []
     _lib.reset_pytorch_rng_call_count.restype = None
 
+    _lib.change_pytorch_selected_rng.argtypes = [ctypes.c_char_p]
+    _lib.change_pytorch_selected_rng.restype = None
+
 
 def get_count() -> int:
     _init_lib()
@@ -33,3 +36,8 @@ def get_count() -> int:
 def reset_count() -> None:
     _init_lib()
     _lib.reset_pytorch_rng_call_count()
+
+
+def change_rng(rng_type: str = "MT19937") -> None:
+    _init_lib()
+    _lib.change_pytorch_selected_rng(rng_type.encode('utf-8'))
