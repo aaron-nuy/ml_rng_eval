@@ -1,4 +1,7 @@
 import argparse
+
+import torch
+
 import rng_control
 import mnist_train
 import pandas as pd
@@ -57,7 +60,7 @@ if __name__ == '__main__':
         "PHILOX": {},
         "LCG": {}
     }
-
+    
     for prng_engine in prng_engines:
         print("\n   =====================================   ")
         print(f"         Testing: {GREEN}{prng_engine}{RESET}\n")
