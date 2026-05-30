@@ -1,5 +1,6 @@
+import torch
+
 import patch_random
-import torch_extra_utils
 
 lcg = patch_random.LCG()
 patch_random.patch(lcg)
@@ -10,7 +11,7 @@ mnist_train.main()
 
 numpy_rng_calls = patch_random.__counter_to_rand_np__
 python_rng_calls = patch_random.__counter_to_rand__
-pytorch_rng_calls = torch_extra_utils.get_count()
+pytorch_rng_calls = torch.get_rng_call_count()
 
 all_rng_calls = numpy_rng_calls + python_rng_calls + pytorch_rng_calls
 
