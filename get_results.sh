@@ -1,2 +1,2 @@
 #!/bin/sh
-python3 run_training_batches.py --epochs 2 --seeds 2340 10
+python3 run_training_batches.py --epochs 8 --seeds 23213540 123460 53579 3254789 2358439 197984568 739592932190
