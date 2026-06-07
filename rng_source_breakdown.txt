@@ -1,0 +1,4 @@
+all_rng_calls: 3738859899
+numpy_rng_calls: 0 --> 0.00% of all calls
+python_rng_calls: 2 --> 0.00% of all calls
+pytorch_rng_calls: 3738859897 --> 100.00% of all calls

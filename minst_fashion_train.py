@@ -1,39 +1,67 @@
 import torch
+
 torch._dynamo.config.use_numpy_random_stream = False
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+FASHION_MNIST_CLASSES = [
+    'T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+    'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot'
+]
+
+FASHION_MEAN = (0.2860,)
+FASHION_STD = (0.3530,)
 
 
-class MNISTNet(nn.Module):
+class FashionMNISTNet(nn.Module):
+
     def __init__(self):
-        super(MNISTNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+        super(FashionMNISTNet, self).__init__()
+
+        self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 32, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(32)
+
+        self.conv3 = nn.Conv2d(32, 64, 3, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.conv4 = nn.Conv2d(64, 64, 3, padding=1)
+        self.bn4 = nn.BatchNorm2d(64)
+
+        self.conv5 = nn.Conv2d(64, 128, 3, padding=1)
+        self.bn5 = nn.BatchNorm2d(128)
+
         self.dropout1 = nn.Dropout(0.25)
         self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
+
+        self.fc1 = nn.Linear(128 * 7 * 7, 256)
+        self.fc2 = nn.Linear(256, 10)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
         x = F.max_pool2d(x, 2)
         x = self.dropout1(x)
+
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = F.max_pool2d(x, 2)
+        x = self.dropout1(x)
+
+        x = F.relu(self.bn5(self.conv5(x)))
+
         x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
+        x = F.relu(self.fc1(x))
         x = self.dropout2(x)
         x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+
+        return F.log_softmax(x, dim=1)
 
 
-class BaseMNISTTrainer:
+class BaseFashionMNISTTrainer:
     def __init__(self, args):
         self.args = args
 
@@ -50,20 +78,21 @@ class BaseMNISTTrainer:
         return torch.device("cpu")
 
     def build_model(self):
-        return MNISTNet()
+        return torch.compile(FashionMNISTNet())
 
     def get_transforms(self, is_train=True):
         if is_train:
             return transforms.Compose([
+                transforms.RandomHorizontalFlip(),
                 transforms.RandomRotation(degrees=15),
                 transforms.RandomCrop(28, padding=2),
                 transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,))
+                transforms.Normalize(FASHION_MEAN, FASHION_STD)
             ])
         else:
             return transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,))
+                transforms.Normalize(FASHION_MEAN, FASHION_STD)
             ])
 
     def get_dataloader_kwargs(self, is_train=True):
@@ -82,28 +111,37 @@ class BaseMNISTTrainer:
         train_transform = self.get_transforms(is_train=True)
         test_transform = self.get_transforms(is_train=False)
 
-        full_dataset = datasets.MNIST('../data', train=True, download=True, transform=train_transform)
+        train_dataset = datasets.FashionMNIST('../data', train=True, download=True,
+                                              transform=train_transform)
+        val_dataset = datasets.FashionMNIST('../data', train=True, download=True,
+                                            transform=test_transform)
 
         val_size = 10000
-        train_size = len(full_dataset) - val_size
+        train_size = len(train_dataset) - val_size
 
-        dataset1, dataset2 = torch.utils.data.random_split(full_dataset,[train_size, val_size])
+        indices = torch.randperm(len(train_dataset)).tolist()
+        train_indices = indices[:train_size]
+        val_indices = indices[train_size:]
 
-        dataset2.dataset.transform = test_transform
+        train_subset = torch.utils.data.Subset(train_dataset, train_indices)
+        val_subset = torch.utils.data.Subset(val_dataset, val_indices)
 
         train_kwargs = self.get_dataloader_kwargs(is_train=True)
         test_kwargs = self.get_dataloader_kwargs(is_train=False)
 
-        train_loader = torch.utils.data.DataLoader(dataset1, **train_kwargs)
-        test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
+        train_loader = torch.utils.data.DataLoader(train_subset, **train_kwargs)
+        test_loader = torch.utils.data.DataLoader(val_subset, **test_kwargs)
 
         return train_loader, test_loader
 
     def build_optimizer(self):
-        return optim.Adadelta(self.model.parameters(), lr=self.args.lr)
+        # Adam converges faster than Adadelta on deeper nets;
+        # weight_decay acts as L2 regularisation.
+        return optim.Adam(self.model.parameters(),
+                          lr=self.args.lr, weight_decay=1e-4)
 
     def build_scheduler(self):
-        return StepLR(self.optimizer, step_size=1, gamma=self.args.gamma)
+        return CosineAnnealingLR(self.optimizer, T_max=self.args.epochs)
 
     def train_epoch(self, epoch):
         self.model.train()
@@ -124,7 +162,7 @@ class BaseMNISTTrainer:
 
         return losses
 
-    def test_epoch(self) -> tuple[int, float]:
+    def test_epoch(self) -> tuple[float, float]:
         self.model.eval()
         test_loss = 0
         correct = 0
@@ -139,8 +177,7 @@ class BaseMNISTTrainer:
         test_loss /= len(self.test_loader.dataset)
         accuracy = float(correct) / len(self.test_loader.dataset)
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            test_loss, correct, len(self.test_loader.dataset),
-            100. * accuracy))
+            test_loss, correct, len(self.test_loader.dataset), 100. * accuracy))
 
         return test_loss, accuracy
 
@@ -157,10 +194,10 @@ class BaseMNISTTrainer:
 
         return losses, test_losses, accuracies
 
-    def predict(self, image: torch.Tensor) -> int:
+    def predict(self, image: torch.Tensor) -> tuple[int, str]:
         """
         image shape: (1, 28, 28) or (1, 1, 28, 28)
-        returns predicted digit
+        Returns (class_index, class_label), e.g. (9, 'Ankle boot').
         """
         self.model.eval()
 
@@ -172,9 +209,9 @@ class BaseMNISTTrainer:
         with torch.no_grad():
             output = self.model(image)
             print(F.softmax(output, dim=1))
-            prediction = output.argmax(dim=1)
+            idx = output.argmax(dim=1).item()
 
-        return prediction.item()
+        return idx, FASHION_MNIST_CLASSES[idx]
 
     def save_model(self, path: str):
         torch.save({
