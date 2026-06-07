@@ -3,3 +3,5 @@ torchvision @ git+https://github.com/aaron-nuy/vision.git@main
 numpy
 matplotlib
 pandas
+seaborn
+scipy
